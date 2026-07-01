@@ -1,2 +1,17 @@
-# Generated locally — tracks installed version
-current_version.txt
+# Python
+__pycache__/
+*.pyc
+
+# PyInstaller
+*.spec
+build/
+dist/
+
+# Generated locally
+filter_cache.zip
+cached_version.txt
+config.json
+
+# Environment
+.env
+.venv/
