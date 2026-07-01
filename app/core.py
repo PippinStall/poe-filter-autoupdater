@@ -9,11 +9,14 @@ REPO = "NeverSinkDev/NeverSink-Filter-for-PoE2"
 _API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 _HEADERS = {"User-Agent": "PoE2-Filter-Updater"}
 
-APP_DIR: Path = (
+_BASE_DIR: Path = (
     Path(sys.executable).parent
     if getattr(sys, "frozen", False)
-    else Path(__file__).parent
+    else Path(__file__).parent.parent
 )
+APP_DIR = _BASE_DIR / "data"
+APP_DIR.mkdir(exist_ok=True)
+
 CACHE_ZIP = APP_DIR / "filter_cache.zip"
 _VERSION_FILE = APP_DIR / "cached_version.txt"
 _CONFIG_FILE = APP_DIR / "config.json"

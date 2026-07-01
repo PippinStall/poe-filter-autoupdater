@@ -8,9 +8,7 @@ build/
 dist/
 
 # Generated locally
-filter_cache.zip
-cached_version.txt
-config.json
+data/
 
 # Environment
 .env
