@@ -1,21 +1,19 @@
 from enum import StrEnum
 
 
-class TranslationEnum(StrEnum):
+class LocalizationEnum(StrEnum):
     EN = "en"
     RU = "ru"
 
 
 # ── Translations ──────────────────────────────────────────────────────────────
 
-STRINGS: dict = {
-    TranslationEnum.EN: {
-        "window_title": "NeverSink Filter Updater",
+LOCALIZATION_STRINGS: dict = {
+    LocalizationEnum.EN: {
+        "window_title": "PoE 2 NeverSink Filter Updater",
         "settings_title": "Settings",
         "language": "Language",
         "destination": "Destination:",
-        "browse": "Browse",
-        "open_directory": "Open",
         "check_update": "Check for Updates",
         "tab_install": "Install",
         "tab_installed": "Installed",
@@ -60,14 +58,13 @@ STRINGS: dict = {
         # confirm dialog
         "dlg_del_title": "Confirm deletion",
         "dlg_del_msg": "Delete {} filter file(s) from:\n{}\n\nThis cannot be undone.",
+        "lang_type": "English",
     },
-    TranslationEnum.RU: {
-        "window_title": "Обновление фильтров NeverSink",
+    LocalizationEnum.RU: {
+        "window_title": "Обновление фильтров NeverSink для PoE 2",
         "settings_title": "Настройки",
         "language": "Язык",
         "destination": "Папка:",
-        "browse": "Обзор",
-        "open_directory": "Открыть папку",
         "check_update": "Проверить обновления",
         "tab_install": "Установка",
         "tab_installed": "Установлено",
@@ -112,11 +109,22 @@ STRINGS: dict = {
         # confirm dialog
         "dlg_del_title": "Подтверждение удаления",
         "dlg_del_msg": "Удалить {} файл(ов) из:\n{}\n\nОтменить нельзя.",
+        "lang_type": "Русский",
     },
 }
 
 
-def get_string(lang: TranslationEnum, key: str) -> str:
+def get_localized(lang: LocalizationEnum, key: str) -> str:
     """Return the translated string for the given language and key."""
 
-    return STRINGS.get(lang, STRINGS[TranslationEnum.EN]).get(key, key)
+    return LOCALIZATION_STRINGS.get(
+        lang, LOCALIZATION_STRINGS[LocalizationEnum.EN]
+    ).get(key, key)
+
+
+def get_language_type(lang: LocalizationEnum) -> str:
+    """Return the display name of the language for the given language code."""
+
+    return LOCALIZATION_STRINGS.get(
+        lang, LOCALIZATION_STRINGS[LocalizationEnum.EN]
+    ).get("lang_type", "Unknown")

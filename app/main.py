@@ -1,22 +1,13 @@
 import time
 import core
+import lang
+import settings
 import platform
 import threading
 import subprocess
 from pathlib import Path
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
-from translation import TranslationEnum, get_string
-
-RATE_LIMIT_SECONDS = 20  # 20 seconds between manual checks
-
-
-STATUS_COLORS = {
-    "progress": "#2980b9",
-    "info": "gray60",
-    "success": "#27ae60",
-    "error": "#c0392b",
-}
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -83,8 +74,8 @@ class App(ctk.CTk):
         cfg = core.load_config()
         self._lang: str = cfg.get("lang", "en")
 
-        self.geometry("720x720")
         self.minsize(600, 520)
+        core.center(self, 720, 720)
 
         self._release = None
         self._groups: dict = {}
@@ -95,7 +86,7 @@ class App(ctk.CTk):
         self._tab_names: list = []
         self._active_tab_idx: int = 0
         self._is_loading: bool = False
-        self._dest = ctk.StringVar(value=str(core.POE2_DIR))
+        self._dest = ctk.StringVar(value=cfg.get("dest", str(settings.POE2_DIR)))
 
         self._setup_ui()
         self.after(200, self._start_load)
@@ -105,58 +96,67 @@ class App(ctk.CTk):
     def t(self, key: str, *args) -> str:
         """Return the translated string for the current language, or fallback to English."""
 
-        text = get_string(TranslationEnum(self._lang), key)
+        text = lang.get_localized(lang.LocalizationEnum(self._lang), key)
 
         return text.format(*args) if args else text
 
     # ── Layout ────────────────────────────────────────────────────────────────
 
     def _setup_ui(self):
+        """Create the main window layout."""
+
         self.title(self.t("window_title"))
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(4, weight=1)
+        self.grid_rowconfigure(2, weight=1)  # tabview expands
 
-        # Title row with settings gear
-        title_row = ctk.CTkFrame(self, fg_color="transparent")
-        title_row.grid(row=0, column=0, sticky="ew", padx=16, pady=(18, 6))
-        title_row.grid_columnconfigure(0, weight=1)
-        self._title_lbl = ctk.CTkLabel(
-            title_row,
-            text=self.t("window_title"),
-            font=ctk.CTkFont(size=22, weight="bold"),
+        # Header row: title + version label (left) | ↻ update | ⚙ settings (right)
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 4))
+        header.grid_columnconfigure(0, weight=1)
+
+        left = ctk.CTkFrame(header, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="ew")
+        left.grid_columnconfigure(0, weight=1)
+
+        self._version_lbl = ctk.CTkLabel(
+            left,
+            text=self.t("ver_unknown"),
+            font=ctk.CTkFont(size=12),
+            text_color="gray55",
             anchor="w",
         )
-        self._title_lbl.grid(row=0, column=0, sticky="w")
-        ctk.CTkButton(
-            title_row,
+        self._version_lbl.grid(row=1, column=0, sticky="w")
+
+        self._check_update_btn = ctk.CTkButton(
+            header,
+            text="↻",
+            width=40,
+            height=40,
+            state="disabled",
+            command=self._on_check_update,
+            fg_color="transparent",
+            hover_color=("gray80", "gray30"),
+            text_color=("gray40", "gray70"),
+            font=ctk.CTkFont(size=22),
+        )
+        self._check_update_btn.grid(row=0, column=1, padx=(4, 2), sticky="e")
+
+        self._settings_btn = ctk.CTkButton(
+            header,
             text="⚙",
-            width=36,
-            height=36,
+            width=40,
+            height=40,
             command=self._open_settings,
             fg_color="transparent",
             hover_color=("gray80", "gray30"),
             text_color=("gray40", "gray70"),
             font=ctk.CTkFont(size=18),
-        ).grid(row=0, column=1, sticky="e")
-
-        # Version info card — label left, Check for Updates button right
-        info = ctk.CTkFrame(self)
-        info.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 4))
-        info.grid_columnconfigure(0, weight=1)
-        self._version_lbl = ctk.CTkLabel(info, text=self.t("ver_unknown"), anchor="w")
-        self._version_lbl.grid(row=0, column=0, padx=12, pady=8, sticky="ew")
-        self._check_update_btn = ctk.CTkButton(
-            info,
-            text=self.t("check_update"),
-            width=170,
-            state="disabled",  # enabled after first load completes
-            command=self._on_check_update,
         )
-        self._check_update_btn.grid(row=0, column=1, padx=(0, 8), pady=6)
+        self._settings_btn.grid(row=0, column=2, sticky="e")
 
         # Status + progress
         status_area = ctk.CTkFrame(self, fg_color="transparent")
-        status_area.grid(row=2, column=0, sticky="ew", padx=16, pady=2)
+        status_area.grid(row=1, column=0, sticky="ew", padx=16, pady=2)
         self._status_lbl = ctk.CTkLabel(
             status_area,
             text="",
@@ -168,38 +168,24 @@ class App(ctk.CTk):
         self._progress = ctk.CTkProgressBar(status_area)
         self._progress.set(0)
 
-        # Destination row
-        dest_row = ctk.CTkFrame(self)
-        dest_row.grid(row=3, column=0, sticky="ew", padx=16, pady=(4, 2))
-        dest_row.grid_columnconfigure(1, weight=1)
-        self._dest_lbl = ctk.CTkLabel(
-            dest_row, text=self.t("destination"), width=70, anchor="w"
-        )
-        self._dest_lbl.grid(row=0, column=0, padx=(10, 2), pady=6)
-        ctk.CTkEntry(dest_row, textvariable=self._dest).grid(
-            row=0, column=1, padx=2, pady=6, sticky="ew"
-        )
-        self._browse_btn = ctk.CTkButton(
-            dest_row, text=self.t("browse"), width=80, command=self._browse
-        )
-        self._browse_btn.grid(row=0, column=2, padx=(2, 10), pady=6)
-        self._open_directory_btn = ctk.CTkButton(
-            dest_row,
-            text=self.t("open_directory"),
-            width=80,
-            command=self._open_directory,
-        )
-        self._open_directory_btn.grid(row=0, column=3, padx=(1, 10), pady=6)
-
         # Tabview
         self._tabs = ctk.CTkTabview(self)
-        self._tabs.grid(row=4, column=0, sticky="nsew", padx=16, pady=(2, 16))
+        self._tabs.grid(row=2, column=0, sticky="nsew", padx=16, pady=(2, 16))
         self._tab_names = [self.t("tab_install"), self.t("tab_installed")]
         for name in self._tab_names:
             self._tabs.add(name)
 
         self._setup_install_tab()
         self._setup_installed_tab()
+
+        # App version footer
+        ctk.CTkLabel(
+            self,
+            text=f"v{settings.APP_VERSION}",
+            font=ctk.CTkFont(size=11),
+            text_color="gray45",
+            anchor="e",
+        ).grid(row=3, column=0, sticky="e", padx=18, pady=(0, 6))
 
     def _setup_install_tab(self):
         """Create the Install tab with scrollable filter list and buttons."""
@@ -253,6 +239,8 @@ class App(ctk.CTk):
         self._install_btn.grid(row=0, column=5, padx=(2, 4), pady=6)
 
     def _setup_installed_tab(self):
+        """Create the Installed tab with scrollable list of installed filters and buttons."""
+
         tab = self._tabs.tab(self._tab_names[1])
         tab.grid_columnconfigure(0, weight=1)
         tab.grid_rowconfigure(0, weight=1)
@@ -311,31 +299,91 @@ class App(ctk.CTk):
 
         win = ctk.CTkToplevel(self)
         win.title(self.t("settings_title"))
-        win.geometry("260x170")
         win.resizable(False, False)
+        core.center(win, 420, 300)
         win.transient(self)
         win.grab_set()
         win.after(50, win.lift)
 
+        # Language section
         ctk.CTkLabel(
             win,
             text=self.t("language"),
             font=ctk.CTkFont(size=14, weight="bold"),
-        ).pack(pady=(16, 8), padx=20, anchor="w")
+            anchor="w",
+        ).pack(pady=(16, 6), padx=20, anchor="w", fill="x")
 
         lang_var = ctk.StringVar(value=self._lang)
-        for code, label in [("en", "English"), ("ru", "Русский")]:
+        for code, label in [
+            (
+                lang.LocalizationEnum.EN,
+                lang.get_language_type(lang.LocalizationEnum.EN),
+            ),
+            (
+                lang.LocalizationEnum.RU,
+                lang.get_language_type(lang.LocalizationEnum.RU),
+            ),
+        ]:
             ctk.CTkRadioButton(win, text=label, variable=lang_var, value=code).pack(
                 anchor="w", padx=28, pady=3
             )
 
-        def _apply():
-            chosen = lang_var.get()
-            win.destroy()
-            if chosen != self._lang:
-                self._switch_language(chosen)
+        # Destination section
+        ctk.CTkLabel(
+            win,
+            text=self.t("destination"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w",
+        ).pack(pady=(16, 6), padx=20, anchor="w", fill="x")
 
-        ctk.CTkButton(win, text="OK", width=80, command=_apply).pack(pady=(14, 0))
+        dest_var = ctk.StringVar(value=self._dest.get())
+
+        dest_row = ctk.CTkFrame(win, fg_color="transparent")
+        dest_row.pack(fill="x", padx=20, pady=(0, 4))
+        dest_row.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkEntry(dest_row, textvariable=dest_var).grid(
+            row=0, column=0, sticky="ew", padx=(0, 4)
+        )
+
+        self._browse_btn = ctk.CTkButton(
+            dest_row,
+            text="⁝",
+            width=40,
+            height=40,
+            command=lambda: self._browse(dest_var),
+            fg_color="transparent",
+            hover_color=("gray80", "gray30"),
+            text_color=("gray40", "gray70"),
+            font=ctk.CTkFont(size=22),
+        )
+        self._browse_btn.grid(row=0, column=1, padx=(0, 4))
+
+        self._open_directory_btn = ctk.CTkButton(
+            dest_row,
+            text="⇢",
+            width=40,
+            height=40,
+            command=lambda: self._open_directory(dest_var.get()),
+            fg_color="transparent",
+            hover_color=("gray80", "gray30"),
+            text_color=("gray40", "gray70"),
+            font=ctk.CTkFont(size=22),
+        )
+        self._open_directory_btn.grid(row=0, column=2, padx=(0, 4))
+
+        def _apply():
+            chosen_lang = lang_var.get()
+            chosen_dest = dest_var.get()
+            win.destroy()
+            self._dest.set(chosen_dest)
+            cfg = core.load_config()
+            cfg["dest"] = chosen_dest
+            core.save_config(cfg)
+            if chosen_lang != self._lang:
+                self._switch_language(chosen_lang)
+
+        ctk.CTkButton(win, text="OK", width=80, command=_apply).pack(pady=(16, 0))
 
     def _switch_language(self, lang: str) -> None:
         """Switch the application's language."""
@@ -346,11 +394,6 @@ class App(ctk.CTk):
         core.save_config(cfg)
 
         self.title(self.t("window_title"))
-        self._title_lbl.configure(text=self.t("window_title"))
-        self._dest_lbl.configure(text=self.t("destination"))
-        self._browse_btn.configure(text=self.t("browse"))
-        self._open_directory_btn.configure(text=self.t("open_directory"))
-        self._check_update_btn.configure(text=self.t("check_update"))
 
         self._rebuild_tabs()
 
@@ -368,7 +411,7 @@ class App(ctk.CTk):
         self._tabs.destroy()
         self._tab_names = [self.t("tab_install"), self.t("tab_installed")]
         self._tabs = ctk.CTkTabview(self)
-        self._tabs.grid(row=4, column=0, sticky="nsew", padx=16, pady=(2, 16))
+        self._tabs.grid(row=2, column=0, sticky="nsew", padx=16, pady=(2, 16))
         for name in self._tab_names:
             self._tabs.add(name)
 
@@ -393,7 +436,7 @@ class App(ctk.CTk):
         if manual:
             cfg = core.load_config()
             elapsed = time.time() - cfg.get("last_check", 0)
-            remaining = RATE_LIMIT_SECONDS - elapsed
+            remaining = settings.RATE_LIMIT_SECONDS - elapsed
             if remaining > 0:
                 sec = max(1, int(remaining))
                 self._set_status(self.t("s_rate_limited", sec), "info")
@@ -429,7 +472,7 @@ class App(ctk.CTk):
         latest = self._release["tag_name"]
         cached = core.get_cached_version()
 
-        if cached != latest or not core.CACHE_ZIP.exists():
+        if cached != latest or not settings.CACHE_ZIP.exists():
             self._ui(self._set_status, self.t("s_downloading", latest), "progress")
             self._ui(self._show_progress)
             try:
@@ -529,6 +572,8 @@ class App(ctk.CTk):
         threading.Thread(target=self._do_install, args=(selected,), daemon=True).start()
 
     def _do_install(self, selected: list):
+        """Install the selected filters in the destination folder."""
+
         self._ui(self._set_status, self.t("s_installing", len(selected)), "progress")
         try:
             n = core.install_filters(selected, Path(self._dest.get()))
@@ -548,9 +593,13 @@ class App(ctk.CTk):
     # ── Installed tab actions ─────────────────────────────────────────────────
 
     def _refresh_installed(self):
+        """Refresh the Installed tab by repopulating the list of installed filters."""
+
         self._populate_installed_list()
 
     def _populate_installed_list(self):
+        """Populate the Installed tab with checkboxes for each filter in the destination folder."""
+
         for w in self._installed_scroll.winfo_children():
             w.destroy()
         self._installed_vars.clear()
@@ -642,7 +691,7 @@ class App(ctk.CTk):
 
     def _set_status(self, msg: str, kind: str = "info"):
         self._status_lbl.configure(
-            text=msg, text_color=STATUS_COLORS.get(kind, "gray60")
+            text=msg, text_color=settings.STATUS_COLORS.get(kind, "gray60")
         )
 
     def _show_progress(self):
@@ -651,14 +700,16 @@ class App(ctk.CTk):
     def _hide_progress(self):
         self._progress.pack_forget()
 
-    def _browse(self):
-        path = filedialog.askdirectory(initialdir=self._dest.get())
+    def _browse(self, dest_var=None):
+        var = dest_var if dest_var is not None else self._dest
+        path = filedialog.askdirectory(initialdir=var.get())
         if path:
-            self._dest.set(path)
+            var.set(path)
 
-    def _open_directory(self):
+    def _open_directory(self, path=None):
         """Open the destination folder in the system file explorer."""
-        path = self._dest.get()
+        if path is None:
+            path = self._dest.get()
         if not Path(path).exists():
             messagebox.showerror(self.title(), self.t("folder_not_found", path))
             return
