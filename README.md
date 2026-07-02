@@ -4,6 +4,8 @@ Desktop application for automatically downloading and updating the [NeverSink lo
 
 On launch the app checks the latest GitHub release, downloads it if a new version is available, and lets you choose exactly which filters to install via a selection UI. Filter categories (Main, Zen, Aura, etc.) are collapsible.
 
+![Screenshot](screen.png)
+
 ## Features
 
 - Checks GitHub for the latest NeverSink release on every launch
@@ -17,7 +19,7 @@ On launch the app checks the latest GitHub release, downloads it if a new versio
 ## Requirements
 
 - Windows 10/11
-- Python 3.9+ **or** the standalone `.exe` (no Python needed)
+- Python 3.12+ **or** the standalone `.exe` (no Python needed)
 
 ## Usage
 

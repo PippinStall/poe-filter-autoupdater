@@ -1,123 +1,15 @@
 import time
-import threading
-from pathlib import Path
-from tkinter import filedialog, messagebox
-
-import customtkinter as ctk
-
 import core
+import platform
+import threading
+import subprocess
+from pathlib import Path
+import customtkinter as ctk
+from tkinter import filedialog, messagebox
+from translation import TranslationEnum, get_string
 
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+RATE_LIMIT_SECONDS = 20  # 20 seconds between manual checks
 
-RATE_LIMIT_SECONDS = 60  # 1 minute between manual checks
-
-# ── Translations ──────────────────────────────────────────────────────────────
-
-STRINGS: dict = {
-    "en": {
-        "window_title": "NeverSink Filter Updater",
-        "settings_title": "Settings",
-        "language": "Language",
-        "destination": "Destination:",
-        "browse": "Browse",
-        "check_update": "Check for Updates",
-        "tab_install": "Install",
-        "tab_installed": "Installed",
-        "collapse_all": "Collapse All",
-        "expand_all": "Expand All",
-        "select_all": "Select All",
-        "deselect_all": "Deselect All",
-        "install_selected": "Install Selected",
-        "refresh": "Refresh",
-        "delete_selected": "Delete Selected",
-        "install_list_label": "Select filters to install",
-        "installed_list_label": "Filters in destination folder",
-        "main_filters": "Main Filters",
-        "loading": "Loading…",
-        "click_refresh": "Click Refresh to load installed filters.",
-        "folder_not_found": "Folder not found:\n{}",
-        "no_filter_files": "No .filter files found in destination folder.",
-        # status — progress (blue)
-        "s_connecting": "Fetching release info from GitHub…",
-        "s_downloading": "Downloading {}…",
-        "s_installing": "Installing {} filter(s)…",
-        # status — info (gray)
-        "s_using_cache": "Using cached archive.",
-        "s_found": "Found {} filters. Select what to install.",
-        "s_rate_limited": "Too soon — next check available in {} min.",
-        # status — success (green)
-        "s_done_install": "Done! {} filter(s) copied to: {}",
-        "s_done_delete": "Deleted {} filter(s).",
-        # status — error (red)
-        "s_deleted_errors": "Deleted with errors: {}",
-        "err_github": "GitHub error: {}",
-        "err_download": "Download error: {}",
-        "err_archive": "Archive error: {}",
-        "err_install": "Install error: {}",
-        "err_no_selection": "No filters selected.",
-        "err_no_delete_sel": "No filters selected for deletion.",
-        # version card
-        "ver_unknown": "Connecting to GitHub…",
-        "ver_new": "Latest: {}   (not yet installed)",
-        "ver_ok": "Version: {}   ✓  Up to date",
-        "ver_update": "Latest: {}   |   Installed: {}   — update available",
-        # confirm dialog
-        "dlg_del_title": "Confirm deletion",
-        "dlg_del_msg": "Delete {} filter file(s) from:\n{}\n\nThis cannot be undone.",
-    },
-    "ru": {
-        "window_title": "Обновление фильтров NeverSink",
-        "settings_title": "Настройки",
-        "language": "Язык",
-        "destination": "Папка:",
-        "browse": "Обзор",
-        "check_update": "Проверить обновления",
-        "tab_install": "Установка",
-        "tab_installed": "Установлено",
-        "collapse_all": "Свернуть всё",
-        "expand_all": "Развернуть всё",
-        "select_all": "Выбрать все",
-        "deselect_all": "Снять выбор",
-        "install_selected": "Установить",
-        "refresh": "Обновить",
-        "delete_selected": "Удалить выбранные",
-        "install_list_label": "Выберите фильтры для установки",
-        "installed_list_label": "Фильтры в папке назначения",
-        "main_filters": "Основные фильтры",
-        "loading": "Загрузка…",
-        "click_refresh": "Нажмите «Обновить» для загрузки списка.",
-        "folder_not_found": "Папка не найдена:\n{}",
-        "no_filter_files": "В папке назначения нет файлов .filter.",
-        # status — progress (blue)
-        "s_connecting": "Получение информации о релизе…",
-        "s_downloading": "Загрузка {}…",
-        "s_installing": "Установка {} фильтр(ов)…",
-        # status — info (gray)
-        "s_using_cache": "Используется кэшированный архив.",
-        "s_found": "Найдено {} фильтров. Выберите нужные.",
-        "s_rate_limited": "Слишком рано — следующая проверка через {} мин.",
-        # status — success (green)
-        "s_done_install": "Готово! {} фильтр(ов) скопировано в: {}",
-        "s_done_delete": "Удалено {} фильтр(ов).",
-        # status — error (red)
-        "s_deleted_errors": "Удалено с ошибками: {}",
-        "err_github": "Ошибка GitHub: {}",
-        "err_download": "Ошибка загрузки: {}",
-        "err_archive": "Ошибка архива: {}",
-        "err_install": "Ошибка установки: {}",
-        "err_no_selection": "Не выбрано ни одного фильтра.",
-        "err_no_delete_sel": "Не выбрано ни одного фильтра для удаления.",
-        # version card
-        "ver_unknown": "Подключение к GitHub…",
-        "ver_new": "Последняя: {}   (не установлена)",
-        "ver_ok": "Версия: {}   ✓  Актуальная",
-        "ver_update": "Последняя: {}   |   Установлена: {}   — доступно обновление",
-        # confirm dialog
-        "dlg_del_title": "Подтверждение удаления",
-        "dlg_del_msg": "Удалить {} файл(ов) из:\n{}\n\nОтменить нельзя.",
-    },
-}
 
 STATUS_COLORS = {
     "progress": "#2980b9",
@@ -126,6 +18,8 @@ STATUS_COLORS = {
     "error": "#c0392b",
 }
 
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
 # ── Collapsible section widget ────────────────────────────────────────────────
 
@@ -209,7 +103,10 @@ class App(ctk.CTk):
     # ── Translation helper ────────────────────────────────────────────────────
 
     def t(self, key: str, *args) -> str:
-        text = STRINGS[self._lang].get(key, STRINGS["en"].get(key, key))
+        """Return the translated string for the current language, or fallback to English."""
+
+        text = get_string(TranslationEnum(self._lang), key)
+
         return text.format(*args) if args else text
 
     # ── Layout ────────────────────────────────────────────────────────────────
@@ -276,7 +173,7 @@ class App(ctk.CTk):
         dest_row.grid(row=3, column=0, sticky="ew", padx=16, pady=(4, 2))
         dest_row.grid_columnconfigure(1, weight=1)
         self._dest_lbl = ctk.CTkLabel(
-            dest_row, text=self.t("destination"), width=100, anchor="w"
+            dest_row, text=self.t("destination"), width=70, anchor="w"
         )
         self._dest_lbl.grid(row=0, column=0, padx=(10, 2), pady=6)
         ctk.CTkEntry(dest_row, textvariable=self._dest).grid(
@@ -286,6 +183,13 @@ class App(ctk.CTk):
             dest_row, text=self.t("browse"), width=80, command=self._browse
         )
         self._browse_btn.grid(row=0, column=2, padx=(2, 10), pady=6)
+        self._open_directory_btn = ctk.CTkButton(
+            dest_row,
+            text=self.t("open_directory"),
+            width=80,
+            command=self._open_directory,
+        )
+        self._open_directory_btn.grid(row=0, column=3, padx=(1, 10), pady=6)
 
         # Tabview
         self._tabs = ctk.CTkTabview(self)
@@ -293,10 +197,13 @@ class App(ctk.CTk):
         self._tab_names = [self.t("tab_install"), self.t("tab_installed")]
         for name in self._tab_names:
             self._tabs.add(name)
+
         self._setup_install_tab()
         self._setup_installed_tab()
 
     def _setup_install_tab(self):
+        """Create the Install tab with scrollable filter list and buttons."""
+
         tab = self._tabs.tab(self._tab_names[0])
         tab.grid_columnconfigure(0, weight=1)
         tab.grid_rowconfigure(0, weight=1)
@@ -400,6 +307,8 @@ class App(ctk.CTk):
     # ── Settings & localization ───────────────────────────────────────────────
 
     def _open_settings(self):
+        """Open the settings dialog for language selection."""
+
         win = ctk.CTkToplevel(self)
         win.title(self.t("settings_title"))
         win.geometry("260x170")
@@ -429,6 +338,8 @@ class App(ctk.CTk):
         ctk.CTkButton(win, text="OK", width=80, command=_apply).pack(pady=(14, 0))
 
     def _switch_language(self, lang: str) -> None:
+        """Switch the application's language."""
+
         self._lang = lang
         cfg = core.load_config()
         cfg["lang"] = lang
@@ -438,11 +349,14 @@ class App(ctk.CTk):
         self._title_lbl.configure(text=self.t("window_title"))
         self._dest_lbl.configure(text=self.t("destination"))
         self._browse_btn.configure(text=self.t("browse"))
+        self._open_directory_btn.configure(text=self.t("open_directory"))
         self._check_update_btn.configure(text=self.t("check_update"))
 
         self._rebuild_tabs()
 
     def _rebuild_tabs(self) -> None:
+        """Rebuild the tabview and its contents, preserving the active tab if possible."""
+
         try:
             current = self._tabs.get()
             self._active_tab_idx = next(
@@ -472,6 +386,7 @@ class App(ctk.CTk):
 
     def _start_load(self, manual: bool = False) -> None:
         """Kick off the background load; enforces rate limit for manual calls."""
+
         if self._is_loading:
             return
 
@@ -480,8 +395,8 @@ class App(ctk.CTk):
             elapsed = time.time() - cfg.get("last_check", 0)
             remaining = RATE_LIMIT_SECONDS - elapsed
             if remaining > 0:
-                mins = max(1, int(remaining / 60))
-                self._set_status(self.t("s_rate_limited", mins), "info")
+                sec = max(1, int(remaining))
+                self._set_status(self.t("s_rate_limited", sec), "info")
                 return
 
         self._is_loading = True
@@ -490,16 +405,20 @@ class App(ctk.CTk):
 
     def _run_load(self) -> None:
         """Wraps _load() to guarantee cleanup regardless of how it exits."""
+
         try:
             self._load()
             cfg = core.load_config()
             cfg["last_check"] = time.time()
+            cfg["lang"] = self._lang
             core.save_config(cfg)
         finally:
             self._is_loading = False
             self._ui(self._check_update_btn.configure, state="normal")
 
     def _load(self) -> None:
+        """Load the latest release info, download archive if needed, and list filters."""
+
         self._ui(self._set_status, self.t("s_connecting"), "progress")
         try:
             self._release = core.get_latest_release()
@@ -509,7 +428,6 @@ class App(ctk.CTk):
 
         latest = self._release["tag_name"]
         cached = core.get_cached_version()
-        self._ui(self._update_version_label, latest, cached)
 
         if cached != latest or not core.CACHE_ZIP.exists():
             self._ui(self._set_status, self.t("s_downloading", latest), "progress")
@@ -527,6 +445,9 @@ class App(ctk.CTk):
             self._ui(self._hide_progress)
         else:
             self._ui(self._set_status, self.t("s_using_cache"), "info")
+
+        cached = core.get_cached_version()
+        self._ui(self._update_version_label, latest, cached)
 
         try:
             self._groups = core.list_filters()
@@ -547,9 +468,13 @@ class App(ctk.CTk):
         self._ui(self._install_btn.configure, state="normal")
 
     def _on_check_update(self) -> None:
+        """User clicked the Check for Updates button."""
+
         self._start_load(manual=True)
 
     def _populate_install_list(self):
+        """Populate the Install tab with checkboxes for each filter in the groups."""
+
         for w in self._scroll.winfo_children():
             w.destroy()
         self._vars.clear()
@@ -731,8 +656,41 @@ class App(ctk.CTk):
         if path:
             self._dest.set(path)
 
+    def _open_directory(self):
+        """Open the destination folder in the system file explorer."""
+        path = self._dest.get()
+        if not Path(path).exists():
+            messagebox.showerror(self.title(), self.t("folder_not_found", path))
+            return
+        try:
+            system = platform.system()
+            if system == "Windows":
+                # explorer always exits with code 1 even on success — don't check
+                subprocess.run(
+                    ["explorer", path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            elif system == "Darwin":
+                subprocess.run(
+                    ["open", path],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                subprocess.run(
+                    ["xdg-open", path],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        except Exception as e:
+            messagebox.showerror(self.title(), f"Could not open directory:\n{e}")
+
     def _ui(self, fn, *args, **kwargs):
         """Post a UI call to the main thread from any background thread."""
+
         self.after(0, lambda: fn(*args, **kwargs))
 
 
